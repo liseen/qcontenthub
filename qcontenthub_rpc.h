@@ -17,6 +17,7 @@
 
 
 static const std::string QCONTENTHUB_STRAGAIN  = "#_#_#again";
+static const std::string QCONTENTHUB_STRERROR = "#_#_#error";
 
 struct cond_stat_t {
     cond_stat_t() : push_cnt(0), pop_cnt(0) {}

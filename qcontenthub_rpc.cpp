@@ -1,4 +1,5 @@
 #include  "qcontenthub_rpc.h"
+#include <cassert>
 
 #define ENTER_FUNCTION \
     std::cout << "enter " << __FUNCTION__ << std::endl;
@@ -107,16 +108,16 @@ void QContentHubServer::push_queue(msgpack::rpc::request req, const std::string 
         queue_t *q = it->second;
         pthread_mutex_lock(&q->lock);
 
-        if (q->stop || (int)q->str_q.size() >= q->capacity) {
+        while (q->stop || (int)q->str_q.size() > q->capacity) {
             {
 	            mp::sync<cond_stat_t>::ref ref(cond_stat);
                 ref->push_cnt++;
-            }
-
-            if (cond_stat.unsafe_ref().push_cnt > limit_thread_num ) {
-                pthread_mutex_unlock(&q->lock);
-                req.result(QCONTENTHUB_ERROR);
-                return;
+                if (ref->push_cnt > limit_thread_num ) {
+                    ref->push_cnt--;
+                    pthread_mutex_unlock(&q->lock);
+                    req.result(QCONTENTHUB_ERROR);
+                    return;
+                }
             }
 
             pthread_cond_wait(&q->not_full, &q->lock);
@@ -125,7 +126,6 @@ void QContentHubServer::push_queue(msgpack::rpc::request req, const std::string 
 	            mp::sync<cond_stat_t>::ref ref(cond_stat);
                 ref->push_cnt--;
             }
-
         }
         q->str_q.push(obj);
         req.result(QCONTENTHUB_OK);
@@ -139,42 +139,43 @@ void QContentHubServer::pop_queue(msgpack::rpc::request req, const std::string &
     queue_map_t &qmap = q_map.unsafe_ref();
     queue_map_it_t it = qmap.find(name);
     if (it == qmap.end()) {
-        req.result(QCONTENTHUB_STRAGAIN);
+        req.result(QCONTENTHUB_STRERROR);
     } else {
         queue_t *q = it->second;
-        pthread_mutex_lock(&q->lock);
-        if (q->str_q.size() == 0) {
+        pthread_mutex_lock(&(q->lock));
+        while (q->str_q.size() <= 0) {
             {
 	            mp::sync<cond_stat_t>::ref ref(cond_stat);
                 ref->pop_cnt++;
-            }
-            if (cond_stat.unsafe_ref().pop_cnt > limit_thread_num ) {
-                pthread_mutex_unlock(&q->lock);
-                req.result(QCONTENTHUB_ERROR);
-                return;
+                if (cond_stat.unsafe_ref().pop_cnt > limit_thread_num ) {
+                    pthread_mutex_unlock(&q->lock);
+                    req.result(QCONTENTHUB_STRERROR);
+                    ref->pop_cnt--;
+                    return;
+                }
             }
 
             pthread_cond_wait(&q->not_empty, &q->lock);
 
             {
 	            mp::sync<cond_stat_t>::ref ref(cond_stat);
-                ref->pop_cnt++;
+                ref->pop_cnt--;
             }
         }
-
+        assert(q->str_q.size() > 0);
         req.result(q->str_q.front());
         q->str_q.pop();
         if (!q->stop) {
             pthread_cond_signal(&q->not_full);
         }
-        pthread_mutex_unlock(&q->lock);
+        pthread_mutex_unlock(&(q->lock));
     }
 }
 
 void QContentHubServer::stats(msgpack::rpc::request req)
 {
     char buf[30];
-    std::string ret;
+    std::string ret = "";
     queue_map_t &qmap = q_map.unsafe_ref();
     for (queue_map_it_t it = qmap.begin(); it != qmap.end(); it++) {
         ret.append("STAT name ");
