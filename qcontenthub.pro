@@ -1,6 +1,8 @@
 TEMPLATE = app
+TARGET=qcontenthubd
 SOURCES += qcontenthub_rpc.cpp
-HEADERS += qcontenthub_rpc.h qcontenthub.h
+SOURCES += qurlqueue_rpc.cpp main.cpp
+HEADERS += qcontenthub_rpc.h qurlqueue_rpc.h qcontenthub.h
 
 LIBS=-lmsgpack-rpc
 

@@ -42,10 +42,13 @@ public:
     void pop_queue_nowait(msgpack::rpc::request &req, const std::string &name);
     void stats(msgpack::rpc::request &req);
     void stat_queue(msgpack::rpc::request &req, const std::string &name);
-
+    void listen(uint16_t port);
+    void run(int multiple);
 public:
     void dispatch(msgpack::rpc::request req);
 
+    int start_thread_num;
+    int limit_thread_num;
 private:
     int add_queue(const std::string &name, int capacity);
 

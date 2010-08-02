@@ -7,9 +7,6 @@
 #define QUIT_FUNCTION \
     std::cout << "quit " << __FUNCTION__ << std::endl;
 
-static int start_thread_num = 100;
-static int limit_thread_num = 70;
-
 int QContentHubServer::add_queue(const std::string &name, int capacity)
 {
 	mp::sync<queue_map_t>::ref ref(q_map);
@@ -318,11 +315,15 @@ void QContentHubServer::dispatch(msgpack::rpc::request req) {
     }
 }
 
-int main(void)
+void QContentHubServer::listen(uint16_t port)
 {
-    QContentHubServer svr;
-    svr.instance.listen("0.0.0.0", 9090);
-    svr.instance.run(start_thread_num);
-
-    return 0;
+    this->instance.listen("0.0.0.0", port);
 }
+
+void QContentHubServer::run(int multiple)
+{
+    start_thread_num = multiple;
+    limit_thread_num =(int)( 0.7 * multiple);
+    this->instance.run(multiple);
+}
+
