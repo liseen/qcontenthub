@@ -63,19 +63,25 @@ void QUrlQueueServer::pop_url(msgpack::rpc::request &req)
     req.result(QCONTENTHUB_STRAGAIN);
 }
 
-
 void QUrlQueueServer::set_default_interval(msgpack::rpc::request &req, int interval)
 {
     mp::sync<site_map_t>::ref ref(m_site_map);
     m_default_interval = interval;
-    req.result(1);
+    req.result(QCONTENTHUB_OK);
+}
+
+void QUrlQueueServer::set_site_interval(msgpack::rpc::request &req, const std::string &site, int interval)
+{
+    mp::sync<site_map_t>::ref ref(m_site_map);
+    m_interval_map[site] = interval;
+    req.result(QCONTENTHUB_OK);
 }
 
 void QUrlQueueServer::set_capacity(msgpack::rpc::request &req, int capacity)
 {
     mp::sync<site_map_t>::ref ref(m_site_map);
     m_capacity = capacity;
-    req.result(1);
+    req.result(QCONTENTHUB_OK);
 }
 
 
@@ -110,6 +116,47 @@ void QUrlQueueServer::stats(msgpack::rpc::request &req)
     req.result(ret);
 }
 
+void QUrlQueueServer::stat_site(msgpack::rpc::request &req, const std::string &site)
+{
+    char buf[64];
+    std::string ret;
+    mp::sync<site_map_t>::ref ref(m_site_map);
+    ret.append("STAT site ");
+    ret.append(site);
+
+    interval_map_it_t interval_it = m_interval_map.find(site);
+    ret.append("\nSTAT interval ");
+    if (interval_it == m_interval_map.end()) {
+        ret.append("default ");
+        sprintf(buf, "%d", m_default_interval);
+        ret.append(buf);
+    } else {
+        sprintf(buf, "%d", interval_it->second);
+        ret.append(buf);
+    }
+
+    site_map_it_t it = ref->find(site);
+    if (it != ref->end()) {
+        ret.append("\nSTAT stop ");
+        if (it->second->stop) {
+            ret.append("1");
+        } else {
+            ret.append("0");
+        }
+
+        ret.append("\nSTAT enqueue_items ");
+        sprintf(buf, "%ld", it->second->enqueue_items);
+        ret.append(buf);
+
+        ret.append("\nSTAT dequeue_items ");
+        sprintf(buf, "%ld", it->second->dequeue_items);
+        ret.append(buf);
+    }
+
+    ret.append("\nEND\r\n");
+    req.result(ret);
+}
+
 void QUrlQueueServer::start_site(msgpack::rpc::request &req, const std::string &site)
 {
     mp::sync<site_map_t>::ref ref(m_site_map);
@@ -135,38 +182,6 @@ void QUrlQueueServer::stop_site(msgpack::rpc::request &req, const std::string &s
     req.result(QCONTENTHUB_OK);
 }
 
-
-
-
-
-void QUrlQueueServer::stat_site(msgpack::rpc::request &req, const std::string &site)
-{
-    char buf[64];
-    std::string ret;
-    mp::sync<site_map_t>::ref ref(m_site_map);
-    site_map_it_t it = ref->find(site);
-    if (it != ref->end()) {
-        ret.append("STAT site ");
-        ret.append(it->second->name);
-
-        ret.append("\nSTAT stop ");
-        if (it->second->stop) {
-            ret.append("1");
-        } else {
-            ret.append("0");
-        }
-
-        ret.append("\nSTAT enqueue_items ");
-        sprintf(buf, "%ld", it->second->enqueue_items);
-        ret.append(buf);
-
-        ret.append("\nSTAT dequeue_items ");
-        sprintf(buf, "%ld", it->second->dequeue_items);
-        ret.append(buf);
-    }
-
-    req.result(ret);
-}
 
 void QUrlQueueServer::clear_empty_site(msgpack::rpc::request &req)
 {
@@ -215,6 +230,14 @@ void QUrlQueueServer::dispatch(msgpack::rpc::request req)
             pop_url(req);
         } else if(method == "stats") {
             stats(req);
+        } else if(method == "set_default_interval") {
+            msgpack::type::tuple<int> params;
+            req.params().convert(&params);
+            set_default_interval(req, params.get<0>());
+        } else if(method == "set_site_interval") {
+            msgpack::type::tuple<std::string, int> params;
+            req.params().convert(&params);
+            set_site_interval(req, params.get<0>(), params.get<1>());
         } else if(method == "stat_site") {
             msgpack::type::tuple<std::string> params;
             req.params().convert(&params);

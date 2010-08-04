@@ -19,7 +19,9 @@ void print_usage(FILE* stream, int exit_code) {
 int main(int argc, char *argv[])
 {
     int daemon = 0;
-    int port = 7676;
+    int port = -1;
+    int url_queue_default_port = 19854;
+    int hub_default_port = 7676;
     int multiple = 100;
     int help = 0;
     bool url_queue = false;
@@ -66,6 +68,14 @@ int main(int argc, char *argv[])
 
     if (multiple < 10 ) {
         multiple = 10;
+    }
+
+    if (port  <= 0) {
+        if (url_queue) {
+            port = url_queue_default_port;
+        } else {
+            port = hub_default_port;
+        }
     }
 
     if (daemon) {
