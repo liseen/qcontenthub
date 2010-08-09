@@ -1,9 +1,19 @@
 #include "qurlqueue_rpc.h"
+#include <iostream>
+#include <sys/time.h>
 
 namespace qurlqueue {
 
-int QUrlQueueServer::m_default_interval = 0;
+int QUrlQueueServer::m_default_interval = 1000;
 volatile uint64_t QUrlQueueServer::m_current_time = 0;
+
+bool QUrlQueueServer::set_current_time()
+{
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    m_current_time = tv.tv_sec * 1000 + (int)tv.tv_usec / 1000;
+    return true;
+}
 
 void QUrlQueueServer::push_url(msgpack::rpc::request &req, const std::string &site, const std::string &record)
 {	
@@ -39,6 +49,7 @@ void QUrlQueueServer::pop_url(msgpack::rpc::request &req)
         Site * s = ordered_sites.top();
         if (s->stop || s->url_queue.size() == 0) {
             s->ref_cnt--;
+            ordered_sites.pop();
            // do nothing
         } else if (s->next_crawl_time > m_current_time) {
             req.result(QCONTENTHUB_STRAGAIN);
@@ -99,6 +110,10 @@ void QUrlQueueServer::stats(msgpack::rpc::request &req)
 
     ret.append("\nSTAT site_items ");
     sprintf(buf, "%ld", m_site_map.unsafe_ref().size());
+    ret.append(buf);
+
+    ret.append("\nSTAT ordered_site_items ");
+    sprintf(buf, "%ld", ordered_sites.size());
     ret.append(buf);
 
     ret.append("\nSTAT enqueue_items ");

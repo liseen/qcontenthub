@@ -1,6 +1,7 @@
 #ifndef QURLQUEUE_RPC_H
 #define QURLQUEUE_RPC_H
 
+#include <msgpack/rpc/loop.h>
 #include <msgpack/rpc/server.h>
 #include <mp/sync.h>
 #include <map>
@@ -45,7 +46,7 @@ public:
 class QUrlQueueServer : public msgpack::rpc::server::base {
 
 public:
-    QUrlQueueServer() : m_enqueue_items(0), m_dequeue_items(0){}
+    QUrlQueueServer(msgpack::rpc::loop lo = msgpack::rpc::loop()) : msgpack::rpc::server::base(lo), m_enqueue_items(0), m_dequeue_items(0){}
     void push_url(msgpack::rpc::request &req, const std::string &site, const std::string &record);
     void pop_url(msgpack::rpc::request &req);
     void set_default_interval(msgpack::rpc::request &req, int interval);
@@ -61,6 +62,8 @@ public:
 public:
     void dispatch(msgpack::rpc::request req);
 
+public:
+    static bool set_current_time();
 private:
     uint64_t m_capacity;
     static int  m_default_interval;

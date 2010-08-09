@@ -95,7 +95,10 @@ int main(int argc, char *argv[])
 
 
     if (url_queue) {
-        qurlqueue::QUrlQueueServer  svr;
+        msgpack::rpc::loop lo;
+        qurlqueue::QUrlQueueServer svr(lo);
+	    lo->add_timer(0.1, 0.001, mp::bind(&qurlqueue::QUrlQueueServer::set_current_time));
+
         svr.instance.listen("0.0.0.0", port);
         svr.instance.run(multiple);
     } else {

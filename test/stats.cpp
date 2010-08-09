@@ -17,7 +17,7 @@ int main(void)
 {
     int result;
     std::string stats;
-    msgpack::rpc::client c("127.0.0.1", 9090);
+    msgpack::rpc::client c("127.0.0.1", 7676);
 
     //c.set_timeout(1000);
     std::string queue_name = "test_queue";

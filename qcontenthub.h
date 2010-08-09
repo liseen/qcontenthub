@@ -8,10 +8,10 @@
 #define QCONTENTHUB_ERROR -1
 
 #define QCONTENTHUB_AGAIN 1
+
 static const std::string QCONTENTHUB_DEFAULT_QUEUE = "";
 
 static const std::string QCONTENTHUB_STRAGAIN  = "###again###";
 static const std::string QCONTENTHUB_STRERROR = "###error###";
-
 
 #endif

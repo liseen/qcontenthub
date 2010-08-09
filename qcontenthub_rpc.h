@@ -33,8 +33,8 @@ class QContentHubServer : public msgpack::rpc::server::base {
 public:
     void add_queue(msgpack::rpc::request &req, const std::string &name, int capacity);
     void del_queue(msgpack::rpc::request &req, const std::string &name);
-    void start_queue(msgpack::rpc::request &req, const std::string &name);
-    void stop_queue(msgpack::rpc::request &req, const std::string &name);
+    //void start_queue(msgpack::rpc::request &req, const std::string &name);
+    //void stop_queue(msgpack::rpc::request &req, const std::string &name);
     void force_del_queue(msgpack::rpc::request &req, const std::string &name);
     void push_queue(msgpack::rpc::request &req, const std::string &name, const std::string &obj);
     void push_queue_nowait(msgpack::rpc::request &req, const std::string &name, const std::string &obj);
