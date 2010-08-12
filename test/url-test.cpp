@@ -10,6 +10,7 @@
         cout << " on line " << __LINE__  << "\n"; \
         cout << " in file " << __FILE__ << "\n";  \
     }
+#include "../qcontenthub.h"
 
 using namespace std;
 
@@ -37,7 +38,7 @@ int main(void)
 
     stats = c.call("stats").get<std::string>();
     std::cout << stats << std::endl;
-
+/*
     std::string pop;
     pop = c.call("pop").get<std::string>();
     std::cout << pop << std::endl;
@@ -45,6 +46,16 @@ int main(void)
 
     stats = c.call("stats").get<std::string>();
     std::cout << stats << std::endl;
+*/
+    result = c.call("start_dump_all").get<int>();
+    std::cout << result << std::endl;
+
+    int i = 0;
+    while (stats != QCONTENTHUB_STREND) {
+        stats = c.call("dump_all").get<std::string>();
+        std::cout << "i : " << i++ << " " <<  stats << std::endl;
+    }
+
 
     return 0;
 }

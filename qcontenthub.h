@@ -14,4 +14,6 @@ static const std::string QCONTENTHUB_DEFAULT_QUEUE = "";
 static const std::string QCONTENTHUB_STRAGAIN  = "###again###";
 static const std::string QCONTENTHUB_STRERROR = "###error###";
 
+static const std::string QCONTENTHUB_STREND = "###end###";
+
 #endif

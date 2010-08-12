@@ -10,15 +10,9 @@
 
 #include "qcontenthub.h"
 
-struct cond_stat_t {
-    cond_stat_t() : push_cnt(0), pop_cnt(0) {}
-    int push_cnt;
-    int pop_cnt;
-};
-
 struct queue_t {
-    int capacity;
-    int stop;
+    volatile int capacity;
+    volatile int stop;
     pthread_mutex_t lock;
     pthread_cond_t not_empty;
     pthread_cond_t not_full;
@@ -32,10 +26,13 @@ class QContentHubServer : public msgpack::rpc::server::base {
 
 public:
     void add_queue(msgpack::rpc::request &req, const std::string &name, int capacity);
-    void del_queue(msgpack::rpc::request &req, const std::string &name);
-    //void start_queue(msgpack::rpc::request &req, const std::string &name);
-    //void stop_queue(msgpack::rpc::request &req, const std::string &name);
-    void force_del_queue(msgpack::rpc::request &req, const std::string &name);
+
+    //void del_queue(msgpack::rpc::request &req, const std::string &name);
+    //void force_del_queue(msgpack::rpc::request &req, const std::string &name);
+    void start_queue(msgpack::rpc::request &req, const std::string &name);
+    void stop_queue(msgpack::rpc::request &req, const std::string &name);
+    void clear_queue(msgpack::rpc::request &req, const std::string &name);
+    void set_queue_capacity(msgpack::rpc::request &req, const std::string &name, int capacity);
     void push_queue(msgpack::rpc::request &req, const std::string &name, const std::string &obj);
     void push_queue_nowait(msgpack::rpc::request &req, const std::string &name, const std::string &obj);
     void pop_queue(msgpack::rpc::request &req, const std::string &name);
@@ -43,17 +40,18 @@ public:
     void stats(msgpack::rpc::request &req);
     void stat_queue(msgpack::rpc::request &req, const std::string &name);
     void listen(uint16_t port);
-    void run(int multiple);
+    void start(int multiple);
 public:
     void dispatch(msgpack::rpc::request req);
 
-    int start_thread_num;
-    int limit_thread_num;
 private:
     int add_queue(const std::string &name, int capacity);
 
+    // secs
+    int get_current_time();
+
 	mp::sync<queue_map_t> q_map;
-	mp::sync<cond_stat_t> cond_stat;
+    int m_start_time;
 };
 
 #endif

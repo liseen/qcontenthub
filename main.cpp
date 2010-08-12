@@ -101,12 +101,12 @@ int main(int argc, char *argv[])
 	    lo->add_timer(0.1, 0.001, mp::bind(&qurlqueue::QUrlQueueServer::set_current_time));
 
         svr.instance.listen("0.0.0.0", port);
-        svr.instance.run(multiple);
+        svr.start(multiple);
     } else {
         QContentHubServer svr;
 
         svr.listen(port);
-        svr.run(multiple);
+        svr.start(multiple);
     }
 
     return 0;

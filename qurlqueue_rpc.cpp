@@ -9,19 +9,29 @@ volatile uint64_t QUrlQueueServer::m_current_time = 0;
 
 bool QUrlQueueServer::set_current_time()
 {
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    m_current_time = tv.tv_sec * 1000 + (int)tv.tv_usec / 1000;
+    m_current_time = get_current_time();
     return true;
 }
 
-void QUrlQueueServer::push_url(const std::string &site, const std::string &record)
+uint64_t QUrlQueueServer::get_current_time()
 {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return tv.tv_sec * 1000 + (int)tv.tv_usec / 1000;
+}
+
+
+int QUrlQueueServer::push_url(const std::string &site, const std::string &record, bool push_front)
+{
+    if (m_stop_all) {
+        return QCONTENTHUB_AGAIN;
+    }
+
     mp::sync<site_map_t>::ref ref(m_site_map);
     site_map_it_t it = ref->find(site);
     if (it == ref->end()) {
         Site * s = new Site();
-        s->url_queue.push(record);
+        s->url_queue.push_back(record);
         s->name = site;
         s->enqueue_items = 1;
         ref->insert(std::pair<std::string, Site *>(site, s));
@@ -33,22 +43,39 @@ void QUrlQueueServer::push_url(const std::string &site, const std::string &recor
             s->ref_cnt++;
             ordered_sites.push(s);
         }
-        s->url_queue.push(record);
+        if (push_front) {
+            s->url_queue.push_front(record);
+        } else {
+            s->url_queue.push_back(record);
+        }
+
         s->enqueue_items++;
     }
     m_enqueue_items++;
 
+    return QCONTENTHUB_OK;
 }
 
 void QUrlQueueServer::push_url(msgpack::rpc::request &req, const std::string &site, const std::string &record)
 {	
-    push_url(site, record);
-    req.result(QCONTENTHUB_OK);
+    int ret = push_url(site, record);
+    req.result(ret);
+}
+
+void QUrlQueueServer::push_list(msgpack::rpc::request &req, const std::string &site, const std::string &record)
+{	
+    int ret = push_url(site, record, true);
+    req.result(ret);
 }
 
 void QUrlQueueServer::pop_url(std::string &content)
 {
     mp::sync<site_map_t>::ref ref(m_site_map);
+
+    if (m_stop_all) {
+        content = QCONTENTHUB_STRAGAIN;
+        return;
+    }
 
     while (!ordered_sites.empty()) {
         Site * s = ordered_sites.top();
@@ -73,7 +100,7 @@ void QUrlQueueServer::pop_url(std::string &content)
             content = s->url_queue.front();
             s->dequeue_items++;
             m_dequeue_items++;
-            s->url_queue.pop();
+            s->url_queue.pop_front();
             return;
         }
     }
@@ -86,6 +113,132 @@ void QUrlQueueServer::pop_url(msgpack::rpc::request &req)
     std::string ret;
     pop_url(ret);
     req.result(ret);
+}
+
+void QUrlQueueServer::start_all(msgpack::rpc::request &req)
+{
+    m_stop_all = false;
+    req.result(QCONTENTHUB_OK);
+}
+
+void QUrlQueueServer::stop_all(msgpack::rpc::request &req)
+{
+    m_stop_all = true;
+    req.result(QCONTENTHUB_OK);
+}
+
+void QUrlQueueServer::clear_all(msgpack::rpc::request &req)
+{
+    {
+        mp::sync<site_map_t>::ref ref(m_site_map);
+        for (site_map_it_t it = ref->begin(); it != ref->end(); it++) {
+            it->second->url_queue.clear();
+        }
+    }
+
+    req.result(QCONTENTHUB_OK);
+}
+
+void QUrlQueueServer::start_dump_all(msgpack::rpc::request &req)
+{
+    if (m_dump_all_dumping) {
+        req.result(QCONTENTHUB_ERROR);
+    } else {
+        m_dump_all_dumping = true;
+        m_dump_all_it = m_site_map.unsafe_ref().begin();
+        req.result(QCONTENTHUB_OK);
+    }
+}
+
+void QUrlQueueServer::dump_all(msgpack::rpc::request &req)
+{
+    std::string content;
+    if (!m_dump_all_dumping) {
+        content = QCONTENTHUB_STRERROR;
+    } else {
+        mp::sync<site_map_t>::ref ref(m_site_map);
+        while (m_dump_all_it != ref->end()) {
+            Site *s = m_dump_all_it->second;
+            if (s->url_queue.size() == 0) {
+                s->dump_all_site_dumping = false;
+                m_dump_all_it++;
+                continue;
+            } else {
+                if (s->dump_all_site_dumping) {
+                    if (s->dump_all_site_dump_it == s->url_queue.end()) {
+                        s->dump_all_site_dumping = false;
+                        m_dump_all_it++;
+                        continue;
+                    } else {
+                        content = *(s->dump_all_site_dump_it);
+                        s->dump_all_site_dump_it++;
+                        break;
+                    }
+                } else {
+                    s->dump_all_site_dumping = true;
+                    s->dump_all_site_dump_it = s->url_queue.begin();
+                    content = *(s->dump_all_site_dump_it);
+                    s->dump_all_site_dump_it++;
+                    break;
+                }
+            }
+        }
+        if (m_dump_all_it == ref->end()) {
+            content = QCONTENTHUB_STREND;
+            m_dump_all_dumping = false;
+        }
+    }
+    req.result(content);
+}
+
+void QUrlQueueServer::start_dump_site(msgpack::rpc::request &req, const std::string &site)
+{
+    {
+        mp::sync<site_map_t>::ref ref(m_site_map);
+        site_map_it_t it = ref->find(site);
+        if (it != ref->end()) {
+            Site *s = it->second;
+            s->site_dumping = true;
+            s->site_dump_it = s->url_queue.begin();
+        }
+    }
+
+    req.result(QCONTENTHUB_OK);
+}
+
+void QUrlQueueServer::dump_site(msgpack::rpc::request &req, const std::string &site)
+{
+    std::string content;
+    {
+        mp::sync<site_map_t>::ref ref(m_site_map);
+        site_map_it_t it = ref->find(site);
+        if (it == ref->end()) {
+            content = QCONTENTHUB_STREND;
+        } else {
+            Site *s = it->second;
+            if (s->site_dump_it == s->url_queue.end()) {
+                s->site_dumping = false;
+                content = QCONTENTHUB_STREND;
+            } else {
+                content = *(s->site_dump_it);
+                s->site_dump_it++;
+            }
+        }
+    }
+
+    req.result(content);
+}
+
+void QUrlQueueServer::clear_site(msgpack::rpc::request &req, const std::string &site)
+{
+    {
+        mp::sync<site_map_t>::ref ref(m_site_map);
+        site_map_it_t it = ref->find(site);
+        if (it != ref->end()) {
+            it->second->url_queue.clear();
+        }
+    }
+    req.result(QCONTENTHUB_OK);
 }
 
 void QUrlQueueServer::set_default_interval(msgpack::rpc::request &req, int interval)
@@ -106,22 +259,18 @@ void QUrlQueueServer::set_site_interval(msgpack::rpc::request &req, const std::s
     req.result(QCONTENTHUB_OK);
 }
 
-void QUrlQueueServer::set_capacity(msgpack::rpc::request &req, int capacity)
-{
-    {
-        mp::sync<site_map_t>::ref ref(m_site_map);
-        m_capacity = capacity;
-    }
-    req.result(QCONTENTHUB_OK);
-}
-
-
 void QUrlQueueServer::stats(msgpack::rpc::request &req)
 {
     char buf[64];
     std::string ret;
+    uint64_t current = m_current_time / 1000;
+
+    ret.append("STAT uptime ");
+    sprintf(buf, "%ld", current - m_start_time);
+    ret.append(buf);
+
     ret.append("STAT time ");
-    sprintf(buf, "%ld", m_current_time / 1000);
+    sprintf(buf, "%ld", current);
     ret.append(buf);
 
     ret.append("\nSTAT default_interval ");
@@ -267,6 +416,14 @@ void QUrlQueueServer::dispatch(msgpack::rpc::request req)
             push_url(req, params.get<0>(), params.get<1>());
         } else if(method == "pop") {
             pop_url(req);
+        } else if(method == "push_list") {
+            msgpack::type::tuple<std::string, std::string> params;
+            req.params().convert(&params);
+            push_list(req, params.get<0>(), params.get<1>());
+        } else if(method == "start_dump_all") {
+            start_dump_all(req);
+        } else if(method == "dump_all") {
+            dump_all(req);
         } else if(method == "stats") {
             stats(req);
         } else if(method == "set_default_interval") {
@@ -289,6 +446,18 @@ void QUrlQueueServer::dispatch(msgpack::rpc::request req)
             msgpack::type::tuple<std::string> params;
             req.params().convert(&params);
             stop_site(req, params.get<0>());
+        } else if(method == "clear_site") {
+            msgpack::type::tuple<std::string> params;
+            req.params().convert(&params);
+            clear_site(req, params.get<0>());
+        } else if(method == "start_dump_site") {
+            msgpack::type::tuple<std::string> params;
+            req.params().convert(&params);
+            start_dump_site(req, params.get<0>());
+        } else if(method == "dump_site") {
+            msgpack::type::tuple<std::string> params;
+            req.params().convert(&params);
+            dump_site(req, params.get<0>());
         } else if(method == "clear_empty_site") {
             clear_empty_site(req);
         } else {
@@ -302,6 +471,12 @@ void QUrlQueueServer::dispatch(msgpack::rpc::request req)
         req.error(std::string(e.what()));
         return;
     }
+}
+
+void QUrlQueueServer::start(int multiple)
+{
+    m_start_time = get_current_time() / 1000;
+    this->instance.run(multiple);
 }
 
 } // end namespace qurlqueue

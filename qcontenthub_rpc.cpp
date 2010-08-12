@@ -1,6 +1,7 @@
 #include  "qcontenthub_rpc.h"
 
 #include <time.h>
+#include <sys/time.h>
 #include <cassert>
 
 #define ENTER_FUNCTION \
@@ -37,6 +38,7 @@ void QContentHubServer::add_queue(msgpack::rpc::request &req, const std::string 
     req.result(add_queue(name, capacity));
 }
 
+/*
 void QContentHubServer::del_queue(msgpack::rpc::request &req, const std::string &name)
 {
     int ret;
@@ -73,8 +75,24 @@ void QContentHubServer::force_del_queue(msgpack::rpc::request &req, const std::s
     }
     req.result(ret);
 }
+*/
 
-/*
+void QContentHubServer::set_queue_capacity(msgpack::rpc::request &req, const std::string &name, int capacity)
+{
+    queue_map_t &qmap = q_map.unsafe_ref();
+    queue_map_it_t it = qmap.find(name);
+    if (it == qmap.end()) {
+        req.result(QCONTENTHUB_WARN);
+    } else {
+        queue_t *q = it->second;
+        pthread_mutex_lock(&q->lock);
+        q->capacity = capacity;
+        pthread_mutex_unlock(&q->lock);
+    }
+    req.result(QCONTENTHUB_OK);
+}
+
+
 void QContentHubServer::start_queue(msgpack::rpc::request &req, const std::string &name)
 {
     queue_map_t &qmap = q_map.unsafe_ref();
@@ -103,7 +121,21 @@ void QContentHubServer::stop_queue(msgpack::rpc::request &req, const std::string
     }
 }
 
-*/
+void QContentHubServer::clear_queue(msgpack::rpc::request &req, const std::string &name)
+{
+    queue_map_t &qmap = q_map.unsafe_ref();
+    queue_map_it_t it = qmap.find(name);
+    if (it == qmap.end()) {
+        req.result(QCONTENTHUB_WARN);
+    } else {
+        queue_t *q = it->second;
+        pthread_mutex_lock(&q->lock);
+        while (!q->str_q.empty()) {
+            q->str_q.pop();
+        }
+        pthread_mutex_unlock(&q->lock);
+    }
+}
 
 void QContentHubServer::push_queue(msgpack::rpc::request &req, const std::string &name, const std::string &obj)
 {
@@ -179,6 +211,11 @@ void QContentHubServer::pop_queue(msgpack::rpc::request &req, const std::string 
         req.result(QCONTENTHUB_STRAGAIN);
     } else {
         queue_t *q = it->second;
+        if (q->stop) {
+            req.result(QCONTENTHUB_STRAGAIN);
+            return;
+        }
+
         pthread_mutex_lock(&(q->lock));
         while (q->str_q.size() == 0) {
             struct timespec ts;
@@ -213,6 +250,10 @@ void QContentHubServer::pop_queue_nowait(msgpack::rpc::request &req, const std::
         req.result(QCONTENTHUB_STRERROR);
     } else {
         queue_t *q = it->second;
+        if (q->stop) {
+            req.result(QCONTENTHUB_STRAGAIN);
+            return;
+        }
         pthread_mutex_lock(&(q->lock));
         if (q->str_q.size() == 0) {
             ret = QCONTENTHUB_STRAGAIN;
@@ -229,7 +270,17 @@ void QContentHubServer::pop_queue_nowait(msgpack::rpc::request &req, const std::
 void QContentHubServer::stats(msgpack::rpc::request &req)
 {
     char buf[64];
-    std::string ret = "";
+    std::string ret;
+    int current = get_current_time();
+    ret.append("STAT uptime ");
+    sprintf(buf, "%d", current - m_start_time);
+    ret.append(buf);
+    ret.append("\n");
+    ret.append("STAT time ");
+    sprintf(buf, "%d", current);
+    ret.append(buf);
+    ret.append("\n");
+
     queue_map_t &qmap = q_map.unsafe_ref();
     for (queue_map_it_t it = qmap.begin(); it != qmap.end(); it++) {
         ret.append("STAT name ");
@@ -245,8 +296,18 @@ void QContentHubServer::stats(msgpack::rpc::request &req)
 
 void QContentHubServer::stat_queue(msgpack::rpc::request &req, const std::string &name)
 {
-    char buf[30];
+    char buf[64];
     std::string ret;
+    int current = get_current_time();
+    ret.append("STAT uptime ");
+    sprintf(buf, "%d", current - m_start_time);
+    ret.append(buf);
+    ret.append("\n");
+    ret.append("STAT time ");
+    sprintf(buf, "%d", current);
+    ret.append(buf);
+    ret.append("\n");
+
     queue_map_t &qmap = q_map.unsafe_ref();
     queue_map_it_t it = qmap.find(name);
     if (it == qmap.end()) {
@@ -268,15 +329,40 @@ void QContentHubServer::dispatch(msgpack::rpc::request req) {
         std::string method;
         req.method().convert(&method);
 
-        if(method == "add") {
+        if(method == "push") {
+            msgpack::type::tuple<std::string, std::string> params;
+            req.params().convert(&params);
+            push_queue(req, params.get<0>(), params.get<1>());
+        } else if(method == "pop") {
+            msgpack::type::tuple<std::string> params;
+            req.params().convert(&params);
+            pop_queue(req, params.get<0>());
+        } else if(method == "push_nowait") {
+            msgpack::type::tuple<std::string, std::string> params;
+            req.params().convert(&params);
+            push_queue_nowait(req, params.get<0>(), params.get<1>());
+        } else if(method == "pop_nowait") {
+            msgpack::type::tuple<std::string> params;
+            req.params().convert(&params);
+            pop_queue_nowait(req, params.get<0>());
+        } else if(method == "add") {
             msgpack::type::tuple<std::string, int> params;
             req.params().convert(&params);
             add_queue(req, params.get<0>(), params.get<1>());
+        /*
         } else if(method == "del") {
             msgpack::type::tuple<std::string> params;
             req.params().convert(&params);
             del_queue(req, params.get<0>());
-        /*
+        } else if(method == "fdel") {
+            msgpack::type::tuple<std::string> params;
+            req.params().convert(&params);
+            force_del_queue(req, params.get<0>());
+        */
+        } else if(method == "set_capacity") {
+            msgpack::type::tuple<std::string, int> params;
+            req.params().convert(&params);
+            set_queue_capacity(req, params.get<0>(), params.get<1>());
         } else if(method == "start") {
             msgpack::type::tuple<std::string> params;
             req.params().convert(&params);
@@ -285,27 +371,10 @@ void QContentHubServer::dispatch(msgpack::rpc::request req) {
             msgpack::type::tuple<std::string> params;
             req.params().convert(&params);
             stop_queue(req, params.get<0>());
-        */
-        } else if(method == "fdel") {
+        } else if(method == "clear") {
             msgpack::type::tuple<std::string> params;
             req.params().convert(&params);
-            force_del_queue(req, params.get<0>());
-        } else if(method == "push") {
-            msgpack::type::tuple<std::string, std::string> params;
-            req.params().convert(&params);
-            push_queue(req, params.get<0>(), params.get<1>());
-        } else if(method == "push_nowait") {
-            msgpack::type::tuple<std::string, std::string> params;
-            req.params().convert(&params);
-            push_queue_nowait(req, params.get<0>(), params.get<1>());
-        } else if(method == "pop") {
-            msgpack::type::tuple<std::string> params;
-            req.params().convert(&params);
-            pop_queue(req, params.get<0>());
-        } else if(method == "pop_nowait") {
-            msgpack::type::tuple<std::string> params;
-            req.params().convert(&params);
-            pop_queue_nowait(req, params.get<0>());
+            clear_queue(req, params.get<0>());
         } else if(method == "stats") {
             stats(req);
         } else if(method == "stat_queue") {
@@ -330,10 +399,16 @@ void QContentHubServer::listen(uint16_t port)
     this->instance.listen("0.0.0.0", port);
 }
 
-void QContentHubServer::run(int multiple)
+void QContentHubServer::start(int multiple)
 {
-    start_thread_num = multiple;
-    limit_thread_num =(int)( 0.7 * multiple);
+    m_start_time = get_current_time();
     this->instance.run(multiple);
+}
+
+int QContentHubServer::get_current_time()
+{
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return tv.tv_sec;
 }
 
