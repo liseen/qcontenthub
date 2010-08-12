@@ -1,4 +1,6 @@
 #include  "qcontenthub_rpc.h"
+
+#include <time.h>
 #include <cassert>
 
 #define ENTER_FUNCTION \
@@ -37,30 +39,39 @@ void QContentHubServer::add_queue(msgpack::rpc::request &req, const std::string 
 
 void QContentHubServer::del_queue(msgpack::rpc::request &req, const std::string &name)
 {
-    mp::sync<queue_map_t>::ref ref(q_map);
-    queue_map_it_t it = ref->find(name);
-    if (it == ref->end()) {
-        req.result(QCONTENTHUB_WARN);
-    } else if (it->second->str_q.size() == 0) {
-        delete it->second;
-        ref->erase(it);
-        req.result(QCONTENTHUB_OK);
-    } else {
-        req.result(QCONTENTHUB_WARN);
+    int ret;
+    {
+        mp::sync<queue_map_t>::ref ref(q_map);
+        queue_map_it_t it = ref->find(name);
+        if (it == ref->end()) {
+            ret = QCONTENTHUB_WARN;
+        } else if (it->second->str_q.size() == 0) {
+            delete it->second;
+            ref->erase(it);
+            ret = QCONTENTHUB_OK;
+        } else {
+            ret = QCONTENTHUB_WARN;
+        }
     }
+
+    req.result(ret);
 }
 
 void QContentHubServer::force_del_queue(msgpack::rpc::request &req, const std::string &name)
 {
-	mp::sync<queue_map_t>::ref ref(q_map);
-    queue_map_it_t it = ref->find(name);
-    if (it == ref->end()) {
-        req.result(QCONTENTHUB_WARN);
-    } else {
-        delete it->second;
-        ref->erase(it);
-        req.result(QCONTENTHUB_OK);
+    int ret;
+    {
+        mp::sync<queue_map_t>::ref ref(q_map);
+        queue_map_it_t it = ref->find(name);
+        if (it == ref->end()) {
+            ret = QCONTENTHUB_WARN;
+        } else {
+            delete it->second;
+            ref->erase(it);
+            ret = QCONTENTHUB_OK;
+        }
     }
+    req.result(ret);
 }
 
 /*
@@ -116,17 +127,19 @@ void QContentHubServer::push_queue(msgpack::rpc::request &req, const std::string
             ts.tv_sec += 60;
             int rc = pthread_cond_timedwait(&q->not_full, &q->lock, &ts);
             if (rc == ETIMEDOUT) {
+                pthread_mutex_unlock(&q->lock);
                 req.result(QCONTENTHUB_STRAGAIN);
                 return;
             } else if (rc != 0) {
+                pthread_mutex_unlock(&q->lock);
                 req.result(QCONTENTHUB_STRERROR);
                 return;
             }
         }
         q->str_q.push(obj);
-        req.result(QCONTENTHUB_OK);
         pthread_cond_signal(&q->not_empty);
         pthread_mutex_unlock(&q->lock);
+        req.result(QCONTENTHUB_OK);
     }
 }
 
@@ -145,15 +158,15 @@ void QContentHubServer::push_queue_nowait(msgpack::rpc::request &req, const std:
     } else {
         queue_t *q = it->second;
         pthread_mutex_lock(&q->lock);
-
         if ((int)q->str_q.size() > q->capacity) {
+            pthread_mutex_unlock(&q->lock);
             req.result(QCONTENTHUB_AGAIN);
         } else {
             q->str_q.push(obj);
-            req.result(QCONTENTHUB_OK);
             pthread_cond_signal(&q->not_empty);
+            pthread_mutex_unlock(&q->lock);
+            req.result(QCONTENTHUB_OK);
         }
-        pthread_mutex_unlock(&q->lock);
     }
 }
 
@@ -173,23 +186,27 @@ void QContentHubServer::pop_queue(msgpack::rpc::request &req, const std::string 
             ts.tv_sec += 60;
             int rc = pthread_cond_timedwait(&q->not_empty, &q->lock, &ts);
             if (rc == ETIMEDOUT) {
+                pthread_mutex_unlock(&(q->lock));
                 req.result(QCONTENTHUB_STRAGAIN);
                 return;
             } else if (rc != 0) {
+                pthread_mutex_unlock(&(q->lock));
                 req.result(QCONTENTHUB_STRERROR);
                 return;
             }
         }
         //assert(q->str_q.size() > 0);
-        req.result(q->str_q.front());
+        std::string content = q->str_q.front();
         q->str_q.pop();
         pthread_cond_signal(&q->not_full);
         pthread_mutex_unlock(&(q->lock));
+        req.result(content);
     }
 }
 
 void QContentHubServer::pop_queue_nowait(msgpack::rpc::request &req, const std::string &name)
 {
+    std::string ret;
     queue_map_t &qmap = q_map.unsafe_ref();
     queue_map_it_t it = qmap.find(name);
     if (it == qmap.end()) {
@@ -198,19 +215,20 @@ void QContentHubServer::pop_queue_nowait(msgpack::rpc::request &req, const std::
         queue_t *q = it->second;
         pthread_mutex_lock(&(q->lock));
         if (q->str_q.size() == 0) {
-            req.result(QCONTENTHUB_STRAGAIN);
+            ret = QCONTENTHUB_STRAGAIN;
         } else {
-            req.result(q->str_q.front());
+            ret = q->str_q.front();
             q->str_q.pop();
             pthread_cond_signal(&q->not_full);
         }
         pthread_mutex_unlock(&(q->lock));
+        req.result(ret);
     }
 }
 
 void QContentHubServer::stats(msgpack::rpc::request &req)
 {
-    char buf[30];
+    char buf[64];
     std::string ret = "";
     queue_map_t &qmap = q_map.unsafe_ref();
     for (queue_map_it_t it = qmap.begin(); it != qmap.end(); it++) {

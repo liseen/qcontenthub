@@ -15,8 +15,8 @@ bool QUrlQueueServer::set_current_time()
     return true;
 }
 
-void QUrlQueueServer::push_url(msgpack::rpc::request &req, const std::string &site, const std::string &record)
-{	
+void QUrlQueueServer::push_url(const std::string &site, const std::string &record)
+{
     mp::sync<site_map_t>::ref ref(m_site_map);
     site_map_it_t it = ref->find(site);
     if (it == ref->end()) {
@@ -38,10 +38,15 @@ void QUrlQueueServer::push_url(msgpack::rpc::request &req, const std::string &si
     }
     m_enqueue_items++;
 
+}
+
+void QUrlQueueServer::push_url(msgpack::rpc::request &req, const std::string &site, const std::string &record)
+{	
+    push_url(site, record);
     req.result(QCONTENTHUB_OK);
 }
 
-void QUrlQueueServer::pop_url(msgpack::rpc::request &req)
+void QUrlQueueServer::pop_url(std::string &content)
 {
     mp::sync<site_map_t>::ref ref(m_site_map);
 
@@ -52,7 +57,7 @@ void QUrlQueueServer::pop_url(msgpack::rpc::request &req)
             ordered_sites.pop();
            // do nothing
         } else if (s->next_crawl_time > m_current_time) {
-            req.result(QCONTENTHUB_STRAGAIN);
+            content = QCONTENTHUB_STRAGAIN;
             return;
         } else {
             ordered_sites.pop();
@@ -60,10 +65,12 @@ void QUrlQueueServer::pop_url(msgpack::rpc::request &req)
             interval_map_it_t it = m_interval_map.find(s->name);
             if (it == m_interval_map.end()) {
                 interval = m_default_interval;
+            } else {
+                interval = it->second;
             }
             s->next_crawl_time = m_current_time + interval;
             ordered_sites.push(s);
-            req.result(s->url_queue.front());
+            content = s->url_queue.front();
             s->dequeue_items++;
             m_dequeue_items++;
             s->url_queue.pop();
@@ -71,27 +78,40 @@ void QUrlQueueServer::pop_url(msgpack::rpc::request &req)
         }
     }
 
-    req.result(QCONTENTHUB_STRAGAIN);
+    content = QCONTENTHUB_STRAGAIN;
+}
+
+void QUrlQueueServer::pop_url(msgpack::rpc::request &req)
+{
+    std::string ret;
+    pop_url(ret);
+    req.result(ret);
 }
 
 void QUrlQueueServer::set_default_interval(msgpack::rpc::request &req, int interval)
 {
-    mp::sync<site_map_t>::ref ref(m_site_map);
-    m_default_interval = interval;
+    {
+        mp::sync<site_map_t>::ref ref(m_site_map);
+        m_default_interval = interval;
+    }
     req.result(QCONTENTHUB_OK);
 }
 
 void QUrlQueueServer::set_site_interval(msgpack::rpc::request &req, const std::string &site, int interval)
 {
-    mp::sync<site_map_t>::ref ref(m_site_map);
-    m_interval_map[site] = interval;
+    {
+        mp::sync<site_map_t>::ref ref(m_site_map);
+        m_interval_map[site] = interval;
+    }
     req.result(QCONTENTHUB_OK);
 }
 
 void QUrlQueueServer::set_capacity(msgpack::rpc::request &req, int capacity)
 {
-    mp::sync<site_map_t>::ref ref(m_site_map);
-    m_capacity = capacity;
+    {
+        mp::sync<site_map_t>::ref ref(m_site_map);
+        m_capacity = capacity;
+    }
     req.result(QCONTENTHUB_OK);
 }
 
@@ -101,7 +121,7 @@ void QUrlQueueServer::stats(msgpack::rpc::request &req)
     char buf[64];
     std::string ret;
     ret.append("STAT time ");
-    sprintf(buf, "%ld", m_current_time);
+    sprintf(buf, "%ld", m_current_time / 1000);
     ret.append(buf);
 
     ret.append("\nSTAT default_interval ");
@@ -174,13 +194,15 @@ void QUrlQueueServer::stat_site(msgpack::rpc::request &req, const std::string &s
 
 void QUrlQueueServer::start_site(msgpack::rpc::request &req, const std::string &site)
 {
-    mp::sync<site_map_t>::ref ref(m_site_map);
-    site_map_it_t it = ref->find(site);
-    if (it != ref->end()) {
-        Site * s = it->second;
-        it->second->stop = false;
-        s->ref_cnt++;
-        ordered_sites.push(s);
+    {
+        mp::sync<site_map_t>::ref ref(m_site_map);
+        site_map_it_t it = ref->find(site);
+        if (it != ref->end()) {
+            Site * s = it->second;
+            it->second->stop = false;
+            s->ref_cnt++;
+            ordered_sites.push(s);
+        }
     }
 
     req.result(QCONTENTHUB_OK);
@@ -188,10 +210,12 @@ void QUrlQueueServer::start_site(msgpack::rpc::request &req, const std::string &
 
 void QUrlQueueServer::stop_site(msgpack::rpc::request &req, const std::string &site)
 {
-    mp::sync<site_map_t>::ref ref(m_site_map);
-    site_map_it_t it = ref->find(site);
-    if (it != ref->end()) {
-        it->second->stop = true;
+    {
+        mp::sync<site_map_t>::ref ref(m_site_map);
+        site_map_it_t it = ref->find(site);
+        if (it != ref->end()) {
+            it->second->stop = true;
+        }
     }
 
     req.result(QCONTENTHUB_OK);

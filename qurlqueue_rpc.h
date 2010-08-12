@@ -48,7 +48,9 @@ class QUrlQueueServer : public msgpack::rpc::server::base {
 public:
     QUrlQueueServer(msgpack::rpc::loop lo = msgpack::rpc::loop()) : msgpack::rpc::server::base(lo), m_enqueue_items(0), m_dequeue_items(0){}
     void push_url(msgpack::rpc::request &req, const std::string &site, const std::string &record);
+    void push_url(const std::string &site, const std::string &record);
     void pop_url(msgpack::rpc::request &req);
+    void pop_url(std::string &ret);
     void set_default_interval(msgpack::rpc::request &req, int interval);
     void set_site_interval(msgpack::rpc::request &req, const std::string &site, int interval);
     void set_capacity(msgpack::rpc::request &req, int capacity);

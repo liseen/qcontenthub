@@ -1,10 +1,20 @@
 TEMPLATE = app
+
 TARGET=qcontenthubd
 
 SOURCES += qcontenthub_rpc.cpp
 SOURCES += qurlqueue_rpc.cpp main.cpp
 HEADERS += qcontenthub_rpc.h qurlqueue_rpc.h qcontenthub.h
 
-LIBS=-lmsgpack-rpc
+CONFIG += release
+QT -= gui core
 
-CONFIG += debug
+LIBS = -lmsgpack-rpc -lrt
+
+INSTALLDIR=/opt/qcontent/3rdparty/
+
+target.path  = $$INSTALLDIR/bin
+
+INSTALLS += target
+
+

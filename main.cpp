@@ -10,6 +10,7 @@ void print_usage(FILE* stream, int exit_code) {
             "  -h --help             Display this usage information.\n"
             "  -d --deamon           Run as a daemon\n"
             "  -p --port <num>       TCP port number to listen on(default 7676)\n"
+            "  -u --url-queue        Url queue\n"
             "  -m --multiple <num>   Threads num(default 100, must greater than 10)\n");
 
     exit(exit_code);
